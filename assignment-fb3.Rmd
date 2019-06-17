@@ -1,0 +1,440 @@
+---
+title: "Assignment08"
+author: "Frank Bonifazi"
+date: "6/12/2019"
+due-date: "6/17/2019"
+output: html_document
+---
+
+Display all of your answers by simply writing the variable name at the end of the code block.
+
+Load libraries that you need
+```{r setup, warning=FALSE, message=FALSE}
+library("tidyverse")
+library("DBI")
+```
+
+Connect to `chinook.db`
+```{r}
+con <- DBI::dbConnect(RSQLite::SQLite(), "chinook.db")
+```
+
+Need the correct names of the tables:
+
+```{r}
+# Show all tables
+dbListTables(con)
+```
+
+Find out what's in "sqlite_sequence" & "sqlite_stat1" ... ask Scott.  These might be DB definitions and admin tables.
+
+Create variables to represent the tables: `genres, albums, artists, tracks, invoices, customers, media_types`. This will make it easier to use these tables later on.
+
+FB: Note to self.... be more consistent with naming conventions!  Whay some have "_" is sloppy naming!
+
+
+```{r}
+artists = tbl(con, 'artists')
+albums = tbl(con, 'albums')
+genres = tbl(con, "genres")
+tracks = tbl(con, "tracks")
+invoices = tbl(con, "invoices")
+customers = tbl(con, "customers")
+media_types = tbl(con, "media_types")
+invoice_items = tbl(con, "invoice_items") #FB: I added this one to Scott's list above.
+```
+
+
+Who are the first 10 `customers` in the database? Return only `FirstName` and `LastName`
+Answer using SQL and `dbGetQuery()` (not `tbl()`)
+```{r}
+qry = 'SELECT FirstName, LastName FROM customers LIMIT 10'
+dbGetQuery(con, qry)
+```
+
+
+Complete the same task as above using `tbl()`
+```{r}
+#NOTE: tbl is in the customers function created above!
+customers%>%
+  select(FirstName,LastName) %>%
+  head(10)
+```
+
+
+For the rest of the assignment, use the `tbl()` ... you may use raw SQL if it is easier for you.
+
+
+Count the number of `customers` by `country` and arrange in descending order.
+```{r}
+customers%>%
+  select(CustomerId, Country) %>%
+  group_by (Country) %>%
+  summarize(n = n()) %>%
+  arrange(desc(n))
+#show_query()
+```
+
+
+Plot the sum of `Total` from invoices by year in a line chart.
+
+FB: 1st find all the fields in the invoices table! (4 missing from diag)
+```{r}
+dbListFields(con, "invoices")
+```
+FB: Total and InvoiceDate are fields in the DB
+What data types are they?
+
+```{r}
+# class (invoices$InvoiceDate) FB: Tried to get the field type directly fron the DB, but returns "NULL".
+
+```
+
+
+```{r}
+invoices %>%
+select (InvoiceDate, Total) #%>%
+   #summarize (InvoiceDate, sum(Total))
+```
+FB: I can see that InvoiceDate is a character (not date type) and Total is a numeric.
+
+I'll need to create a new field (mutate) with just the year as a numeric or factor. But, not in the DB ... rather in a tibble.  We haven't learned string manipulation yet...need to strip out the first 5 characters - str_sub(x,1,5) looks promising.
+
+```{r}
+invoices %>%
+mutate(Date = InvoiceDate) %>%
+mutate(Year_only = str_sub(Date,1,4)) %>%
+mutate(Year_num = as.numeric(Year_only)) %>%
+select(Year_num, Total) %>%
+  group_by(Year_num) %>%
+  summarize(sum(Total))
+```
+
+FB: Now tying to answer using my own tibble object
+
+```{r}
+InvoiceTibble = invoices %>% as_data_frame()
+InvoiceTibble %>%
+  #class()
+mutate(Date = InvoiceDate) %>%
+mutate(Year_only = str_sub(Date,1,4)) %>%
+mutate(Year_num = as.numeric(Year_only)) %>%
+#This worked to create a new col with a numeric year!
+  select(Year_num, Total) %>%
+group_by(Year_num) %>%
+ggplot(aes(x=Year_num)) +
+geom_bar(binwidth=.5)
+
+```
+```{r}
+InvoiceTibble = invoices %>% as_data_frame()
+InvoiceTibble %>%
+  #class()
+mutate(Date = InvoiceDate) %>%
+mutate(Year_only = str_sub(Date,1,4)) %>%
+mutate(Year_num = as.numeric(Year_only)) %>%
+#This worked to create a new col with a numeric year!
+  select(Year_num, Total) %>%
+group_by(Year_num) %>%
+ggplot(aes(x=Year_num, y=Total)) +
+geom_line()
+```
+
+FB: Looks way better as a bar plot!!!!
+
+Try a boxplot...
+
+```{r}
+InvoiceTibble = invoices %>% as_data_frame()
+InvoiceTibble %>%
+  #class()
+mutate(Date = InvoiceDate) %>%
+mutate(Year_only = str_sub(Date,1,4)) %>%
+mutate(Year_num = as.numeric(Year_only)) %>%
+#This worked to create a new col with a numeric year!
+  select(Year_num, Total) %>%
+group_by(Year_num) %>%
+ggplot(aes(x=Year_num, y=Total, group=Year_num)) +
+geom_boxplot()
+
+```
+
+FB: This is the best plot option IMO.
+
+```{r}
+what_is_this = albums
+  class(what_is_this)
+```
+FB: Looks like a tibble to me.
+
+
+```{r}
+what_is_this = albums %>%
+  select(AlbumId) #FB: Needs something or else I get error...
+My_tibble = (as.tibble(albums))
+class(My_tibble)
+```
+
+I've converted what_is_this into a data.frame!
+
+FB: Now trying it without using my own tibble...much clearer code!
+
+```{r}
+invoices %>%
+mutate(Date = InvoiceDate) %>%
+mutate(Year_only = str_sub(Date,1,4)) %>%
+mutate(Year_num = as.numeric(Year_only)) %>%
+  select (Year_num, Total) %>% 
+  group_by(Year_num, Total)
+```
+
+
+
+What's the average length of a `track` for each `artist` on each `album`?
+
+Desired Output:
+artist - album - track - average length
+
+
+FB: Find where the data is...
+
+1 - Length of track is field "Milliseconds" in table "tracks"
+
+2 - "ArtistId" is in "artists" table and "albums" table
+
+3 - Use "artists" table which matches "ArtistId" to "Name"... of artist
+
+
+
+```{r}
+tracks %>%
+  select (AlbumId, Milliseconds)  # Don't pass anything to next line!
+  
+albums %>%
+  select(AlbumId, ArtistId)# %>%
+  #left_join (tracks, by = 'AlbumId')
+```
+
+```{r}
+  inner_join(x=tracks, y=albums) %>%
+    left_join (artists, by = "ArtistId") %>%
+select(ArtistId, Milliseconds, AlbumId, TrackId) %>%
+  select(AlbumId, ArtistId, TrackId, Milliseconds) %>%
+group_by(AlbumId, ArtistId, TrackId, Milliseconds) %>%
+  summarize (mean(Milliseconds)) %>%
+  arrange(desc(Milliseconds))
+```
+
+If the different `media_types` cost different amounts of money to sell, calculate your top 10 most profitable tracks. For this example, all costs are equal EXCEPT for the `media_type`.  
+
+COSTS:  
+
+  - MPEG = $0.15
+  - Protected MPEG-4 = $0.25
+  - AAC = $0.03
+  - Protected AAC = $0.10
+  - Purchased AAC = $0.08
+
+```{r}
+tracks %>%
+  select(MediaTypeId, UnitPrice)
+```
+
+FB: All UnitPrice values are same... don't differ by MediaTypeId.  So, profit is determined solely by media cost.
+
+FB: I may be missing something here... if all media types sell for the same amount 0.99, the the most profitable per unit is the one that costs the least to mfg. That's AAC at 0.03.
+
+But, the total profit will be based on quantiy sold. Maybe that's what you're after.
+
+Scott pointed me to the media_types table where NediaTypeId lives! Will need that to map to MPEG etc.
+
+FB: Determine which table to put the cost in. In a DB I designed, I'd probably create a new separe table for prices. One way of thinking tells me to add it to where MediaType lives... tracks table.
+
+```{r}
+#dbListFields(con, "media_types")
+media_types %>%
+select(Name, MediaTypeId)
+```
+
+FB: Let's add Cost in the media_types table... A job for mutate man (MM!)
+
+```{r}
+media_types %>%
+  mutate(Cost = 0) %>%  #FB: Could have set it to NA...but, O set the class the numeric.
+  print(media_types)
+```
+
+FB: Now add the mfg costs per MediaTypeId
+
+```{r}
+my_media_types = as.data.frame(media_types)
+Cost_vector <- c(.15, .25, .10, .08, .03)
+mutate(my_media_types, Cost = Cost_vector) #Worked!
+
+```
+
+
+FB: This is good!
+ 
+FB: Looking at the tracks table:
+
+```{r}
+dbListFields(con, "tracks")
+```
+
+FB: Now all I need is to find out how many of each MedisTypeId were sold.
+Let's take a look at the invoice_item table:
+
+
+```{r}
+
+dbListFields(con, "invoice_items")
+
+```
+
+FB: All UnitPrice values are same... don't differ by MediaTypeId.  So, profit is determined solely by media cost.
+
+I need to match MediaTypeId to items in Scott's cost list.
+Lot's look at the invoice_items table's invoiceItemid field
+
+```{r}
+dbListFields(con, "invoice_items")
+```
+FB: I found Quantity... now how do I match that up with MediaTypeId?
+MediaTypeId is in both the media_types and tracks tables.
+
+```{r}
+invoice_items %>%
+  select(TrackId, Quantity)
+
+```
+
+#```{r}
+invoice_items %>%
+  select(InvoiceItemId)
+  
+#```
+
+
+FB: The DB table diagram is WRONG!!! - the InvoiceItemId field doesn't exist in the invoice_items table!
+Scott, did you try to catch us on this??  You sneaky Devil!
+
+```{r}
+invoice_items %>%
+  select(Quantity) %>%
+  as.tibble() %>%
+  unique()
+```
+FB: Can it be that ALL the tracks only sold at quantity 1???
+
+
+FB: Need to add MediaTypeId from the tracks table to this list... requires a join
+
+
+```{r}
+media_types %>%
+left_join (tracks, by = "MediaTypeId") %>%
+select(MediaTypeId) %>%
+  ggplot(aes(MediaTypeId)) +
+  geom_histogram(binwidth=.5)
+```
+
+
+#```{r}
+tracks %>%
+  select(MediaTypeId) %>%
+  ggplot(aes(MediaTypeId)) +
+  geom_histogram()
+  #as.tibble() %>%
+  #unique()
+#```
+
+FB: We have sold ALL Media Types!  But, mostly MediaTypeId 1.
+
+```{r}
+media_types %>%
+left_join (tracks, by = "MediaTypeId") %>%
+
+left_join (invoice_items, by = "TrackId") %>%
+select(TrackId, MediaTypeId,Quantity) %>%
+  group_by(MediaTypeId)
+```
+
+FB: Weird results: Quantity is either 1 or NA.
+
+Remove NAs?
+
+
+
+
+Create a Scatter Plot of `tracks`, x = milliseconds and y = bytes 
+```{r}
+  tracks %>%
+  select (Milliseconds, Bytes) %>%
+  ggplot(aes(x=Milliseconds, y=Bytes)) +
+  geom_point(alpha =.5)
+```
+
+
+Create a Scatter Plot of `tracks`, x = milliseconds and y = bytes, `facet_wrap` by `media_type`
+```{r}
+  tracks %>%
+  select (Milliseconds, Bytes, MediaTypeId) %>%
+  ggplot(aes(x=Milliseconds, y=Bytes)) +
+  geom_point(alpha =.5) +
+stat_smooth(method = "lm", se = FALSE) + facet_wrap(~MediaTypeId)
+```
+
+FB: Looks like there are multiple linear regressions depending on the ranges of MediaTYpeId (not visible in plot). Ranges 1, 2 and 3 look like the same slop, 5 miht also be the similar, but range 3 is definitely a different slope. Range 3 also has a higher variance than the others.
+
+FB: I know Scott doesn't favor this type of regression analysis.
+
+Create a linear regression model using `milliseconds` as a predictor of `bytes`. Hint, formula: `bytes ~ milliseconds`
+```{r}
+tracks %>%
+  select(Bytes, Milliseconds)
+  
+model_1 = lm(Bytes ~ Milliseconds, data=tracks)
+summary(model_1)
+```
+FB: Looks like the model is significant (low p-value) so we can reject H0 (that they Bytes and Milliseconds are related linearly). But, the high R^2 suggests there's a lot of error in this model.
+
+Create a linear model using the same formula but split it out according to `media_type`
+
+```{r}
+tracks %>%
+  select(Bytes, MediaTypeId)
+  
+model_2 = lm(Bytes ~ MediaTypeId, data=tracks)
+summary(model_1)
+```
+FB: Looks statistically significant, but the R^2 error is half of for model_1, but a better model should be investigated.
+
+Create a linear model using the same formula but split it out according to `artist`
+
+
+FB: This is trickier since ArtistId is not in the same table as Bytes. It's in the albums table.
+
+FB: Bytes by ArtistId...
+ArtistId is in the artists & albums tables.
+Bytes is in the tracks table.
+
+I can link from the tracks table using the AlbumId in tracks which is also in the album table.
+
+PLAM:
+
+- Start with artists table
+- left_join albums table by ArtistId. (This will pick up AlbumId) THEN
+- left_join tracks table by AlbumId. (This will pick up Bytes)
+
+
+
+```{r}
+artists %>%
+  left_join(albums, by = "ArtistId") %>%
+  left_join(tracks, by = "AlbumId") %>%
+  select(Bytes, ArtistId) %>%
+lm(Bytes ~ ArtistId, data = . )  %>%
+summary()
+```
+
